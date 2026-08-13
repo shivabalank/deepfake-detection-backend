@@ -14,6 +14,7 @@ import argparse
 import cv2
 import numpy as np
 import torch
+import requests
 
 from config import cfg
 from utils.logger import get_logger
@@ -26,8 +27,46 @@ from models.model import DeepfakeClassifier
 logger = get_logger(__name__)
 
 
+def _download_checkpoint_if_needed(ckpt_path: str) -> None:
+    """
+    If the checkpoint doesn't exist locally, download it from MODEL_URL
+    (an environment variable, e.g. set on Render to a Hugging Face Hub
+    direct-download link). This lets deployment platforms fetch the large
+    model file at startup instead of requiring it to be committed to git.
+    """
+    if os.path.exists(ckpt_path):
+        return
+
+    model_url = os.environ.get("MODEL_URL")
+    if not model_url:
+        logger.warning(
+            f"No checkpoint found at {ckpt_path} and no MODEL_URL environment "
+            f"variable set — cannot auto-download. Set MODEL_URL to a direct "
+            f"download link (e.g. a Hugging Face Hub 'resolve/main/...' URL)."
+        )
+        return
+
+    logger.info(f"Checkpoint not found locally — downloading from {model_url} ...")
+    os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
+
+    response = requests.get(model_url, stream=True, timeout=300)
+    response.raise_for_status()
+
+    tmp_path = ckpt_path + ".part"
+    total_bytes = 0
+    with open(tmp_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+            if chunk:
+                f.write(chunk)
+                total_bytes += len(chunk)
+
+    os.rename(tmp_path, ckpt_path)
+    logger.info(f"Downloaded checkpoint to {ckpt_path} ({total_bytes / (1024*1024):.1f} MB)")
+
+
 def load_model() -> DeepfakeClassifier:
     ckpt_path = os.path.join(cfg.CHECKPOINT_DIR, "best_model.pth")
+    _download_checkpoint_if_needed(ckpt_path)
     model = DeepfakeClassifier(pretrained=(not os.path.exists(ckpt_path))).to(cfg.DEVICE)
     if os.path.exists(ckpt_path):
         checkpoint = torch.load(ckpt_path, map_location=cfg.DEVICE, weights_only=False)
