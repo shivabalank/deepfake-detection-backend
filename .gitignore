@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+checkpoints/
+outputs/
+reports/
+uploads/
+dataset/train/*
+dataset/val/*
+dataset/test/*
+!dataset/**/.gitkeep
+.env
