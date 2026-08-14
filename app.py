@@ -61,6 +61,13 @@ def _image_to_data_uri(path: str) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def _file_to_data_uri(path: str, mime_type: str) -> str:
+    """Reads any file from disk and returns it as a base64 data: URI."""
+    with open(path, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}"
+
+
 @app.route("/predict/image", methods=["POST"])
 def predict_image_route():
     if "file" not in request.files:
@@ -88,14 +95,27 @@ def predict_image_route():
         logger.warning(f"Could not encode overlay image: {e}")
         heatmap_image = None
 
+    # IMPORTANT: embed the PDF directly in this response as base64, rather
+    # than returning a URL to fetch later via a separate GET request. On
+    # serverless/ephemeral hosting (e.g. Cloud Run), a later request can
+    # land on a DIFFERENT container instance that never saw this file get
+    # written to disk, causing a 404 on download. Embedding it here removes
+    # that dependency entirely — the browser downloads it client-side from
+    # data already in hand.
     report_filename = os.path.basename(result["report_path"])
+    try:
+        report_data_uri = _file_to_data_uri(result["report_path"], "application/pdf")
+    except Exception as e:
+        logger.warning(f"Could not encode report PDF: {e}")
+        report_data_uri = None
 
     return jsonify({
         "prediction": result["prediction"],       # "REAL" or "FAKE"
         "confidence": confidence,                  # e.g. 99.98
         "conclusion": conclusion,                   # human-readable summary sentence
         "heatmap_image": heatmap_image,             # data:image/png;base64,... (Grad-CAM overlay)
-        "report_url": f"{request.host_url.rstrip('/')}/report/{report_filename}",
+        "report_data_uri": report_data_uri,         # data:application/pdf;base64,...
+        "report_filename": report_filename,
     })
 
 
