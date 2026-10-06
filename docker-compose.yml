@@ -1,0 +1,19 @@
+# Runs the backend as a persistent service on the VM.
+# `restart: unless-stopped` means Docker will automatically restart the
+# container if it crashes, and bring it back up after a VM reboot — this is
+# what directly fixes the "backend always disconnects" problem from the
+# previous serverless (Cloud Run) deployment, which scaled to zero and had
+# to cold-start on each new request.
+
+services:
+  backend:
+    build: .
+    image: deepfake-detection-backend:latest
+    container_name: deepfake-detection-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
